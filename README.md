@@ -19,8 +19,6 @@
 
 ## 使用教程
 
-更好更详细的教程请转至 [刺猬猫小说下载为txt和epub @insaua.com](https://www.insaua.com/articles/ciweimao-novel-download/)
-
 ### 1. 准备环境
 * 下载并安装支持 Root 权限的安卓模拟器（如 MuMu Player）
 * 下载刺猬猫 App （版本需大于v2.9.303）
