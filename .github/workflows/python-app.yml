@@ -43,14 +43,16 @@ jobs:
           pip install nuitka
 
       - name: Build with Nuitka (minimal)
+        shell: pwsh
         run: |
-          python -m nuitka ^
-            --standalone ^
-            --onefile ^
-            --assume-yes-for-downloads ^
-            --remove-output ^
-            --output-dir=build ^
+          python -m nuitka `
+            --standalone `
+            --onefile `
+            --assume-yes-for-downloads `
+            --remove-output `
+            --output-dir=build `
             src/main.py
+
 
       - name: Prepare release files
         run: |
