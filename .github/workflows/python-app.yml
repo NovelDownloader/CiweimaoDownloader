@@ -18,12 +18,14 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # 1️⃣ Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create tags
+      # 2️⃣ Ensure tag exists (不会因为已存在失败)
+      - name: Ensure tag exists
         shell: pwsh
         run: |
           $tag = '${{ inputs.tag }}'
@@ -38,25 +40,28 @@ jobs:
           } catch {
               Write-Host "Git tag check/push returned non-zero, ignoring"
           }
-          
-          # **确保 step 不会因非零退出码失败**
-          exit 0
+          exit 0  # 避免 step 因非零退出码 fail
 
-
+      # 3️⃣ Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      # 4️⃣ Cache pip (Windows 下正确路径)
+      - name: Set pip cache dir
+        shell: pwsh
+        run: |
+          echo "PIP_CACHE_DIR=$env:LOCALAPPDATA\pip\Cache" >> $env:GITHUB_ENV
+
       - name: Cache pip
         uses: actions/cache@v3
         with:
-          path: |
-            C:\Users\runneradmin\AppData\Local\pip\Cache
+          path: ${{ env.PIP_CACHE_DIR }}
           key: windows-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            windows-pip-
+          restore-keys: windows-pip-
 
+      # 5️⃣ Install dependencies
       - name: Install dependencies
         shell: pwsh
         run: |
@@ -64,39 +69,50 @@ jobs:
           pip install -r requirements.txt
           pip install nuitka
 
-      - name: Build Windows EXE with Nuitka
+      # 6️⃣ Build Windows EXE with Nuitka
+      - name: Build Windows EXE
         shell: pwsh
         run: |
           try {
               python -m nuitka `
-                --standalone `
-                --onefile `
-                --assume-yes-for-downloads `
-                --remove-output `
-                --output-dir=build `
-                src/main.py
+                  --standalone `
+                  --onefile `
+                  --assume-yes-for-downloads `
+                  --remove-output `
+                  --output-dir=build `
+                  src/main.py
           } catch {
               Write-Host "Nuitka build failed"
               exit 1
           }
 
+      # 7️⃣ Prepare release files
       - name: Prepare release files
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release
           New-Item -ItemType Directory -Force dist
-      
           Copy-Item build\main.exe release\
           Copy-Item setting.yaml release\
           Copy-Item readme.md release\
 
-
+      # 8️⃣ Pack artifacts into zip (dist folder)
       - name: Pack artifacts
         shell: pwsh
         run: |
           $zip = "dist\CiweimaoDownloader-${{ inputs.tag }}-windows-x64.zip"
           Compress-Archive -Path release\* -DestinationPath $zip -Force
 
+      # 9️⃣ Debug (可选，确保文件生成)
+      - name: Debug packaged files
+        shell: pwsh
+        run: |
+          Write-Host "=== release content ==="
+          Get-ChildItem release -Recurse
+          Write-Host "=== dist content ==="
+          Get-ChildItem dist -Recurse
+
+      # 🔟 Create Release & Upload
       - name: Create Release & Upload
         uses: softprops/action-gh-release@v1
         with:
@@ -104,10 +120,9 @@ jobs:
           name: ${{ inputs.tag }}
           body: |
             ${{ inputs.body }}
-      
+
             ---
             Built automatically via GitHub Actions
-          files: |
-            release\*.zip
+          files: dist\*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
