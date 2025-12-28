@@ -120,9 +120,10 @@ jobs:
           name: ${{ inputs.tag }}
           body: |
             ${{ inputs.body }}
-
+      
             ---
             Built automatically via GitHub Actions
-          files: dist\*.zip
+            Maintained by @Zn90107UlKa
+          files: dist/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
