@@ -83,15 +83,19 @@ jobs:
       - name: Prepare release files
         shell: pwsh
         run: |
-          if (-Not (Test-Path release)) { New-Item -ItemType Directory -Path release }
+          New-Item -ItemType Directory -Force release
+          New-Item -ItemType Directory -Force dist
+      
           Copy-Item build\main.exe release\
           Copy-Item setting.yaml release\
           Copy-Item readme.md release\
 
+
       - name: Pack artifacts
         shell: pwsh
         run: |
-          Compress-Archive -Path release\* -DestinationPath release\CiweimaoDownloader-${{ inputs.tag }}-windows-x64.zip -Force
+          $zip = "dist\CiweimaoDownloader-${{ inputs.tag }}-windows-x64.zip"
+          Compress-Archive -Path release\* -DestinationPath $zip -Force
 
       - name: Create Release & Upload
         uses: softprops/action-gh-release@v1
