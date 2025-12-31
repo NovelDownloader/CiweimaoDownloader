@@ -19,7 +19,7 @@
 
 ## 使用教程
 
-[教程](https://github.com/Eason3Blue/CiweimaoDownloader/blob/main/wiki/readme.md)
+[教程](https://github.com/NovelDownloader/CiweimaoDownloader/blob/main/wiki/readme.md)
 
 ## 版权声明
 
