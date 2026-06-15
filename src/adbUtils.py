@@ -206,10 +206,11 @@ def pull_keys():
 
 
 def pull_book(book_id: int):
+    # Encrypted Text files are session-specific and must be re-pulled each run.
     local_dir = Path("data") / str(book_id)
-    if local_dir.exists() and (local_dir / "done").exists():
-        models.Print.info(f"[INFO] data/{book_id}/ 已存在且已处理，跳过拉取")
-        return
+    if local_dir.exists():
+        import shutil
+        shutil.rmtree(local_dir)
 
     models.Print.info(f"[INFO] 正在从设备拉取 {book_id} 的加密章节...")
     local_dir.mkdir(parents=True, exist_ok=True)
