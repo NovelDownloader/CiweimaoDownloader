@@ -1,128 +1,108 @@
-name: Build & Release (Windows EXE)
+name: Build and Package
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag name (e.g. v1.0.0). Will create if not exists."
-        required: true
-      body:
-        description: "Release description (Markdown allowed)"
-        required: true
-
-permissions:
-  contents: write
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:   # 允许手动触发
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            build_script: build.ps1
+            executable: main.exe
+            run_script: run.bat
+            artifact_name: app-windows
+          - os: ubuntu-latest
+            build_script: build.sh
+            executable: main
+            run_script: run.sh
+            artifact_name: app-linux
+
+    runs-on: ${{ matrix.os }}
 
     steps:
-      # 1️⃣ Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # 2️⃣ Ensure tag exists (不会因为已存在失败)
-      - name: Ensure tag exists
-        shell: pwsh
-        run: |
-          $tag = '${{ inputs.tag }}'
-          try {
-              if (-not (git rev-parse $tag -q --verify)) {
-                  Write-Host "Tag $tag does not exist, creating..."
-                  git tag $tag
-                  git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} $tag
-              } else {
-                  Write-Host "Tag $tag already exists, skipping creation"
-              }
-          } catch {
-              Write-Host "Git tag check/push returned non-zero, ignoring"
-          }
-          exit 0  # 避免 step 因非零退出码 fail
-
-      # 3️⃣ Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11.9'          # 已固定为 3.11.9
+          cache: 'pip'                      # 缓存 pip 依赖
 
-      # 4️⃣ Cache pip (Windows 下正确路径)
-      - name: Set pip cache dir
-        shell: pwsh
-        run: |
-          echo "PIP_CACHE_DIR=$env:LOCALAPPDATA\pip\Cache" >> $env:GITHUB_ENV
-
-      - name: Cache pip
-        uses: actions/cache@v3
-        with:
-          path: ${{ env.PIP_CACHE_DIR }}
-          key: windows-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: windows-pip-
-
-      # 5️⃣ Install dependencies
       - name: Install dependencies
-        shell: pwsh
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install nuitka
+        run: pip install -r requirements.txt
 
-      # 6️⃣ Build Windows EXE with Nuitka
-      - name: Build Windows EXE
+      - name: Grant execute permission (Linux)
+        if: runner.os == 'Linux'
+        run: chmod +x ${{ matrix.build_script }}
+
+      - name: Run build script
         shell: pwsh
         run: |
-          try {
-              python -m nuitka `
-                  --standalone `
-                  --onefile `
-                  --assume-yes-for-downloads `
-                  --remove-output `
-                  --output-dir=build `
-                  src/main.py
-          } catch {
-              Write-Host "Nuitka build failed"
-              exit 1
+          if ($env:Runner_OS -eq 'Windows') {
+            & .\${{ matrix.build_script }}
+          } else {
+            bash ./${{ matrix.build_script }}
           }
 
-      # 7️⃣ Prepare release files
-      - name: Prepare release files
+      - name: Clean build folder (keep only executable)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force release
-          New-Item -ItemType Directory -Force dist
-          Copy-Item build\main.exe release\
-          Copy-Item setting.yaml release\
-          Copy-Item readme.md release\
+          $buildDir = "build"
+          if (Test-Path $buildDir) {
+            Push-Location $buildDir
+            Get-ChildItem -Exclude "${{ matrix.executable }}" | Remove-Item -Recurse -Force
+            Pop-Location
+          } else {
+            Write-Error "build folder not found after build script"
+            exit 1
+          }
 
-      # 8️⃣ Pack artifacts into zip (dist folder)
-      - name: Pack artifacts
+      - name: Copy wiki, run script and setting.yaml
         shell: pwsh
         run: |
-          $zip = "dist\CiweimaoDownloader-${{ inputs.tag }}-windows-x64.zip"
-          Compress-Archive -Path release\* -DestinationPath $zip -Force
+          $buildDir = "build"
+          # Copy wiki (entire folder)
+          if (Test-Path "wiki") {
+            Copy-Item -Path "wiki\*" -Destination $buildDir -Recurse -Force
+          } else {
+            Write-Warning "wiki folder not found, skipping"
+          }
+          # Copy run script
+          if (Test-Path "${{ matrix.run_script }}") {
+            Copy-Item -Path "${{ matrix.run_script }}" -Destination $buildDir -Force
+          } else {
+            Write-Warning "${{ matrix.run_script }} not found, skipping"
+          }
+          # Copy setting.yaml
+          if (Test-Path "setting.yaml") {
+            Copy-Item -Path "setting.yaml" -Destination $buildDir -Force
+          } else {
+            Write-Warning "setting.yaml not found, skipping"
+          }
 
-      # 9️⃣ Debug (可选，确保文件生成)
-      - name: Debug packaged files
+      - name: Package build folder as ZIP
         shell: pwsh
         run: |
-          Write-Host "=== release content ==="
-          Get-ChildItem release -Recurse
-          Write-Host "=== dist content ==="
-          Get-ChildItem dist -Recurse
+          $zipName = "${{ matrix.artifact_name }}.zip"
+          if ($env:Runner_OS -eq 'Windows') {
+            Compress-Archive -Path ".\build\*" -DestinationPath $zipName -Force
+          } else {
+            # Linux uses zip command (install if needed)
+            sudo apt-get update && sudo apt-get install -y zip
+            zip -r $zipName build/
+          }
+          echo "ZIP created: $zipName"
 
-      # 🔟 Create Release & Upload
-      - name: Create Release & Upload
-        uses: softprops/action-gh-release@v1
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ inputs.tag }}
-          name: ${{ inputs.tag }}
-          body: |
-            ${{ inputs.body }}
-      
-            ---
-            Built automatically via GitHub Actions
-          files: dist/*.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.zip
+          retention-days: 7
