@@ -1,3 +1,7 @@
-# Build a self-contained Windows package (source + embedded Python).
-# Shortcut for: pwsh package.ps1
-& (Join-Path $PSScriptRoot "package.ps1") @args
+# Build a Nuitka executable for the project.
+python -m nuitka --onefile `
+    --output-dir=build `
+    --include-data-files=./setting.yaml=setting.yaml `
+    --jobs=8 `
+    --verbose `
+    ./src/main.py
