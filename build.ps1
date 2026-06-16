@@ -4,4 +4,5 @@ python -m nuitka --onefile `
     --include-data-files=./setting.yaml=setting.yaml `
     --jobs=8 `
     --verbose `
+    --windows-dependency-walker=download `
     ./src/main.py
