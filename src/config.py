@@ -6,7 +6,7 @@ import tools
 
 DEFAULT_SETTING_YAML = """\
 #这是介绍页生成的选项
-homePage:
+homePage:  
   enable: true
   #可选的参数有 {bookID} {bookCover} {bookName} {bookAuthor} {bookDescription} {Enter}
   style: "{bookCover}{Enter}书名:{bookName}{Enter}作者:{bookAuthor}{Enter}描述:{bookDescription}"
@@ -46,7 +46,7 @@ multiThread:
 
 #adb自动拉取的设置选项
 adb:
-  enable: false
+  enable: true
   #留空则自动检测，多设备时自动选择安装了刺猬猫的设备
   device: ""
   #打开这个选项能让程序自动扫描设备上的所有书籍，此时books设置会被忽略
@@ -67,7 +67,9 @@ manualBook:
   enable: false
   #当这个选项打开时，程序会结合json文件和书籍加密文件夹，若某一章节在json中不存在而在书籍加密文件夹中存在时，程序也会将其输出，但是"xxx章未购买"的提示将会失效
   autoExtend: true
-  jsonString: '{"bookID":"100000005","bookName":"我的奋斗","authorName":"希尔","bookDescription":"这是我的奋斗的简介","coverPath":"./cover.jpg","contents":{"1000001":"第一章","1000002":"第二章","1000003":"终章"}}'
+  jsonString: '{"bookID":"100000005","bookName":"我的奋斗","authorName":"希尔","bookDescription":"这是我的奋斗的简介","coverPath":"","contents":{}}'
+
+#以下为标准的json字符串格式示例
 # {
 #     "bookID": "100000005",
 #     "bookName": "我的奋斗",
@@ -79,6 +81,16 @@ manualBook:
 #         "1000002": "第二章",
 #         "1000003": "终章"
 #     }
+# }
+
+#以下为最小的json字符串格式示例
+# {
+#     "bookID": "100000005",
+#     "bookName": "我的奋斗",
+#     "authorName": "希尔",
+#     "bookDescription": "这是我的奋斗的简介",
+#     "coverPath": "",
+#     "contents": {}
 # }
 """
 

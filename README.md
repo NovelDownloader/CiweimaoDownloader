@@ -28,13 +28,13 @@
 
 ```bash
 # Windows (PowerShell)
-.\package.ps1
+.\build.ps1
 
 # Linux
-./package.sh
+./build.sh
 ```
 
-构建产物位于 `dist/` 目录。
+构建产物位于 `build/` 目录。
 
 ## 开发
 
