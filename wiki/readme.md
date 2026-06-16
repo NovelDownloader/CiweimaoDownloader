@@ -81,11 +81,10 @@ ADB 模式可自动从模拟器中拉取文件，无需手动复制。
 9. 将下载的解码软件也解压到`D:\cwmd`，将`Y2hlcy8`改名为`key`，并将`key`和`<小说数字id>`放入 `data` 目录。结构如下：
 ```
 D:\cwmd\
+  main.exe
   run.bat
   setting.yaml
-  python\          (嵌入式 Python，无需安装)
   adb\             (adb 工具)
-  src\             (程序源代码)
   data\
     key\
     <小说数字id>\
