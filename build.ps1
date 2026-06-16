@@ -3,5 +3,6 @@ python -m nuitka --onefile `
     --output-dir=build `
     --include-data-files=./setting.yaml=setting.yaml `
     --jobs=8 `
-    --verbose `
+    --quiet `
+    --assume-yes-for-downloads `
     ./src/main.py
