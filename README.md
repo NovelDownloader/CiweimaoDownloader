@@ -18,7 +18,7 @@
 - **Windows**: 解压后双击 `run.bat`
 - **Linux**: 解压后运行 `./run.sh`
 
-无需安装 Python，所有依赖均已包含在 `python/` 目录中。ADB 工具也已内置在 `adb/` 目录中。
+无需安装 Python，运行`run.bat`或`run.sh`即可。ADB 工具也已内置在 `adb/` 目录中。
 
 ## 使用教程
 
