@@ -24,6 +24,7 @@ SIMULATORS: Dict[str, int] = {
 LOCALHOST = "127.0.0.1"
 CONNECT_TIMEOUT = 1.0
 
+DEVICE_DB_PATH = "/data/data/com.kuangxiangciweimao.novel/databases/novelCiwei"
 DEVICE_KEY_DIR = "/data/data/com.kuangxiangciweimao.novel/files/Y2hlcy8"
 DEVICE_BOOKS_DIR = "/data/data/com.kuangxiangciweimao.novel/files/novelCiwei/reader/booksnew"
 APP_DATA_DIR = "/data/data/com.kuangxiangciweimao.novel"
@@ -41,7 +42,7 @@ def _adb(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
-def adb_su(cmd: str) -> subprocess.CompletedProcess:
+def adb(cmd: str) -> subprocess.CompletedProcess:
     return _adb(["shell", f"su -c '{cmd}'"])
 
 def _try_connect_adb_fast(host: str, port: int, timeout: float = CONNECT_TIMEOUT) -> bool:
@@ -84,42 +85,33 @@ def _preDetect() -> None:
         status = "成功" if results.get(name, False) else "失败"
         print(f"{name:<20}{status:<10}")
 
-def _check_device_root(serial: str) -> bool:
-    """检查指定设备是否已 root"""
+# def _check_device_root(serial: str) -> bool:
+#     """检查指定设备是否已 root"""
+#     try:
+#         res: subprocess.CompletedProcess = subprocess.run(
+#             ["adb", "-s", serial, "shell", "su -c 'echo root'"],
+#             capture_output=True, text=True, timeout=3
+#         )
+#         return "root" in res.stdout
+#     except Exception:
+#         return False
+
+
+def _check_device_app(serial: str) -> bool:
+    """检查设备是否安装刺猬猫应用（无需 root）"""
     try:
-        res: subprocess.CompletedProcess = subprocess.run(
-            ["adb", "-s", serial, "shell", "su -c 'echo root'"],
+        res = subprocess.run(
+            ["adb", "-s", serial, "shell", f"pm list packages {APP_PACKAGE}"],
             capture_output=True, text=True, timeout=3
         )
-        return "root" in res.stdout
+        return APP_PACKAGE in res.stdout
     except Exception:
         return False
-
-
-def _check_device_app(serial: str, rooted: bool) -> bool:
-    """检查设备是否安装刺猬猫应用"""
-    try:
-        if rooted:
-            res = subprocess.run(
-                ["adb", "-s", serial, "shell",
-                 f"su -c 'test -d {APP_DATA_DIR} && echo ok'"],
-                capture_output=True, text=True, timeout=3
-            )
-            return "ok" in res.stdout
-        else:
-            res = subprocess.run(
-                ["adb", "-s", serial, "shell", f"pm list packages {APP_PACKAGE}"],
-                capture_output=True, text=True, timeout=3
-            )
-            return APP_PACKAGE in res.stdout
-    except Exception:
-        return False
-
 
 def _detect_device() -> Tuple[str, bool]:
     """
-    自动检测设备，打印设备表格，并返回选中的 (设备序列号, 是否 root)。
-    选择优先级：root + 已安装 app > 仅 root > 无合适设备（返回空字符串）。
+    自动检测设备，打印设备表格，并返回选中的 (设备序列号, 是否有 app)。
+    选择优先级：有 app 的设备 > 第一个可用设备 > 无设备（返回空字符串）。
     """
     # 0. 扫描并连接模拟器
     _preDetect()
@@ -132,36 +124,30 @@ def _detect_device() -> Tuple[str, bool]:
         print("未检测到任何设备。")
         return "", False
 
-    # 2. 逐个检测 root 和 app
-    info: List[Tuple[str, bool, bool]] = []   # (serial, rooted, has_app)
+    # 2. 逐个检测 app（不再检测 root）
+    info: List[Tuple[str, bool]] = []   # (serial, has_app)
     for serial in devices:
-        rooted = _check_device_root(serial)
-        has_app = _check_device_app(serial, rooted) if rooted else False
-        info.append((serial, rooted, has_app))
+        has_app = _check_device_app(serial)  # 忽略 root，直接检查 app
+        info.append((serial, has_app))
 
-    # 3. 打印表格
+    # 3. 打印表格（去掉 Root 列）
     models.Print.warn("[INFO]测试结果如下：")
-    print(f"{'Device':<24}{'Root':<10}{'Ciweimao':<12}")
-    print("-" * 46)
-    for serial, rooted, has_app in info:
-        print(f"{serial:<24}{'Yes' if rooted else 'No':<10}{'Yes' if has_app else 'No':<12}")
+    print(f"{'Device':<24}{'Ciweimao':<12}")
+    print("-" * 36)
+    for serial, has_app in info:
+        print(f"{serial:<24}{'Yes' if has_app else 'No':<12}")
 
-    # 4. 按优先级选择设备（必须 root）
-    # 先找 root 且有 app 的
-    for serial, rooted, has_app in info:
-        if rooted and has_app:
-            return serial, True
-    # 再找任何 root 设备
-    for serial, rooted, _ in info:
-        if rooted:
-            return serial, True
-
-    # 没有 root 设备
+    # 4. 按优先级选择设备（优先有 app 的）
+    for serial, has_app in info:
+        if has_app:
+            return serial, False
+    # 其次返回第一个设备（若有）
+    if devices:
+        return devices[0], False
     return "", False
 
-
 def check_adb() -> None:
-    """检查并确认 adb 设备及 root 权限。"""
+    """检查并确认 adb 设备"""
     global _device_serial
 
     # 用户是否指定了设备
@@ -169,21 +155,48 @@ def check_adb() -> None:
     
     if specified:
         _device_serial = specified
-        if not _check_device_root(specified):
-            models.Print.err("[ERR] 模拟器未获取 root 权限")
-            raise RuntimeError("root not available")
+        if not _check_device_app(specified):
+            models.Print.err("[ERR] 设备未安装刺猬猫应用，请确认模拟器已安装并开启 adb 调试")
+            raise RuntimeError("app not available")
     else:
-        serial, rooted = _detect_device()
+        serial, hasApp = _detect_device()
         if not serial:
             models.Print.err("[ERR] 未检测到 adb 设备，请确认模拟器已开启 adb 调试")
             raise RuntimeError("adb device not found")
-        if not rooted:
-            models.Print.err("[ERR] 模拟器未获取 root 权限")
-            raise RuntimeError("root not available")
+        if not hasApp:
+            models.Print.err("[ERR] 设备未安装刺猬猫应用，请确认模拟器已安装并开启 adb 调试")
+            raise RuntimeError("app not available")
         _device_serial = serial
 
     models.Print.info(f"[INFO] adb 设备已连接：{_device_serial}")
     models.Print.info(f"[INFO] root 权限正常")
+
+def pull_db():
+    local_db = Path("data/novelCiwei.db")
+    # 清除旧文件（支持文件或目录）
+    if local_db.exists():
+        if local_db.is_dir():
+            import shutil
+            shutil.rmtree(local_db)
+        else:
+            local_db.unlink()
+
+    models.Print.info("[INFO] 正在从设备拉取数据库文件...")
+
+    # 1. 将设备上的单个数据库文件复制到临时路径（sdcard 可读）
+    temp_file = f"{SDCARD_TMP}_db"   # 用唯一临时文件名，避免与旧 key 混淆
+    adb(f"cp '{DEVICE_DB_PATH}' '{temp_file}'")
+
+    # 2. 拉取临时文件到本地
+    r = _adb(["pull", temp_file, str(local_db)])
+
+    # 3. 清理临时文件
+    adb(f"rm -f '{temp_file}'")
+
+    if r.returncode != 0:
+        models.Print.err(f"[ERR] 拉取数据库文件失败：{r.stderr}")
+        raise RuntimeError("pull db failed")
+    models.Print.info(f"[INFO] 数据库文件拉取完成")
 
 def pull_keys():
     local_key = Path("data/key")
@@ -195,9 +208,9 @@ def pull_keys():
     models.Print.info("[INFO] 正在从设备拉取密钥文件...")
     local_key.mkdir(parents=True, exist_ok=True)
 
-    adb_su(f"cp -r '{DEVICE_KEY_DIR}' '{SDCARD_TMP}_key'")
+    adb(f"cp -r '{DEVICE_KEY_DIR}' '{SDCARD_TMP}_key'")
     r = _adb(["pull", f"{SDCARD_TMP}_key/.", str(local_key)])
-    adb_su(f"rm -rf '{SDCARD_TMP}_key'")
+    adb(f"rm -rf '{SDCARD_TMP}_key'")
 
     if r.returncode != 0:
         models.Print.err(f"[ERR] 拉取密钥文件失败：{r.stderr}")
@@ -217,9 +230,9 @@ def pull_book(book_id: int):
 
     src = f"{DEVICE_BOOKS_DIR}/{book_id}"
     tmp = f"{SDCARD_TMP}_{book_id}"
-    adb_su(f"cp -r '{src}' '{tmp}'")
+    adb(f"cp -r '{src}' '{tmp}'")
     r = _adb(["pull", f"{tmp}/.", str(local_dir)])
-    adb_su(f"rm -rf '{tmp}'")
+    adb(f"rm -rf '{tmp}'")
 
     if r.returncode != 0:
         models.Print.err(f"[ERR] 拉取 {book_id} 失败：{r.stderr}")
@@ -228,7 +241,7 @@ def pull_book(book_id: int):
 
 
 def list_books():
-    r = adb_su(f"ls '{DEVICE_BOOKS_DIR}'")
+    r = adb(f"ls '{DEVICE_BOOKS_DIR}'")
     if r.returncode != 0:
         models.Print.err(f"[ERR] 无法列出设备上的书籍目录：{r.stderr}")
         return []
