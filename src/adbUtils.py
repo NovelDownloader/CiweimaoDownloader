@@ -3,7 +3,7 @@ from pathlib import Path
 import models
 import config
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 #已知的模拟器ADB端口列表，程序会自动扫描并连接这些端口上的模拟器设备。
 SIMULATORS: Dict[str, int] = {
@@ -28,7 +28,7 @@ DEVICE_DB_PATH = "/data/data/com.kuangxiangciweimao.novel/databases/novelCiwei"
 DEVICE_KEY_DIR = "/data/data/com.kuangxiangciweimao.novel/files/Y2hlcy8"
 DEVICE_BOOKS_DIR = "/data/data/com.kuangxiangciweimao.novel/files/novelCiwei/reader/booksnew"
 APP_DATA_DIR = "/data/data/com.kuangxiangciweimao.novel"
-APP_PACKAGE = "com.kuangxiang.ciweimao" 
+APP_PACKAGE = "com.kuangxiangciweimao.novel" 
 SDCARD_TMP = "/sdcard/cwmd_adb_tmp"
 
 _device_serial: str = ""
@@ -43,7 +43,7 @@ def _adb(cmd: list[str]) -> subprocess.CompletedProcess:
 
 
 def adb(cmd: str) -> subprocess.CompletedProcess:
-    return _adb(["shell", f"su -c '{cmd}'"])
+    return _adb(["shell", f"{cmd}"])
 
 def _try_connect_adb_fast(host: str, port: int, timeout: float = CONNECT_TIMEOUT) -> bool:
     """快速尝试连接网络 ADB（无预检，直接 adb connect）。"""
@@ -85,18 +85,6 @@ def _preDetect() -> None:
         status = "成功" if results.get(name, False) else "失败"
         print(f"{name:<20}{status:<10}")
 
-# def _check_device_root(serial: str) -> bool:
-#     """检查指定设备是否已 root"""
-#     try:
-#         res: subprocess.CompletedProcess = subprocess.run(
-#             ["adb", "-s", serial, "shell", "su -c 'echo root'"],
-#             capture_output=True, text=True, timeout=3
-#         )
-#         return "root" in res.stdout
-#     except Exception:
-#         return False
-
-
 def _check_device_app(serial: str) -> bool:
     """检查设备是否安装刺猬猫应用（无需 root）"""
     try:
@@ -130,7 +118,7 @@ def _detect_device() -> Tuple[str, bool]:
         has_app = _check_device_app(serial)  # 忽略 root，直接检查 app
         info.append((serial, has_app))
 
-    # 3. 打印表格（去掉 Root 列）
+    # 3. 打印表格
     models.Print.warn("[INFO]测试结果如下：")
     print(f"{'Device':<24}{'Ciweimao':<12}")
     print("-" * 36)
@@ -140,7 +128,7 @@ def _detect_device() -> Tuple[str, bool]:
     # 4. 按优先级选择设备（优先有 app 的）
     for serial, has_app in info:
         if has_app:
-            return serial, False
+            return serial, has_app
     # 其次返回第一个设备（若有）
     if devices:
         return devices[0], False
@@ -169,7 +157,6 @@ def check_adb() -> None:
         _device_serial = serial
 
     models.Print.info(f"[INFO] adb 设备已连接：{_device_serial}")
-    models.Print.info(f"[INFO] root 权限正常")
 
 def pull_db():
     local_db = Path("data/novelCiwei.db")
