@@ -24,7 +24,7 @@
 
 ## 使用教程
 
-详见压缩包内 `使用说明.md`
+详见[使用说明](https://github.com/NovelDownloader/CiweimaoDownloader/blob/main/wiki/readme.md)和压缩包内 `使用说明.md`
 
 ## 构建
 
