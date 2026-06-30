@@ -19,7 +19,7 @@ jobs:
             artifact_name: app-windows
           - os: ubuntu-latest
             build_script: build.sh
-            executable: main
+            executable: main.bin
             run_script: run.sh
             artifact_name: app-linux
 
