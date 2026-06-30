@@ -1,5 +1,4 @@
 from pathlib import Path
-import config
 import fileUtils
 import models
 import tools
@@ -61,50 +60,10 @@ interactive:
   #always = 始终显示菜单
   #never = 绝不显示菜单，配置不完整时报错退出
   mode: auto
-
-#手动目录的设置选项
-manualBook:
-  enable: false
-  #当这个选项打开时，程序会结合json文件和书籍加密文件夹，若某一章节在json中不存在而在书籍加密文件夹中存在时，程序也会将其输出，但是"xxx章未购买"的提示将会失效
-  autoExtend: true
-  jsonString: '{"bookID":"100000005","bookName":"我的奋斗","authorName":"希尔","bookDescription":"这是我的奋斗的简介","coverPath":"","contents":{}}'
-
-#以下为标准的json字符串格式示例
-# {
-#     "bookID": "100000005",
-#     "bookName": "我的奋斗",
-#     "authorName": "希尔",
-#     "bookDescription": "这是我的奋斗的简介",
-#     "coverPath": "./cover.jpg",
-#     "contents": {
-#         "1000001": "第一章",
-#         "1000002": "第二章",
-#         "1000003": "终章"
-#     }
-# }
-
-#以下为最小的json字符串格式示例
-# {
-#     "bookID": "100000005",
-#     "bookName": "我的奋斗",
-#     "authorName": "希尔",
-#     "bookDescription": "这是我的奋斗的简介",
-#     "coverPath": "",
-#     "contents": {}
-# }
 """
-
-def CalculateParama(book:models.Book):
-    book.safeName = tools.SanitizeName(book.name)
-    book.decryptedTxt = Path("output") / f"{book.safeName}.txt"
-    count = 0
-    for chapter in book.chapters:
-        count += 1
-        chapter.safeTitle = tools.SanitizeName(chapter.title)
-        if (config.setting.cache.text == True):
-            chapter.decrypted = Path(config.textFolder) / f"{count} {chapter.safeTitle}.txt"
-        chapter.key = Path("data/key") / str(chapter.id)
-        chapter.encryptedTxt = Path("data") / str(book.id) / f"{chapter.id}.txt"
+setting = None
+textFolder = ""
+imageFolder = ""
 
 def init():
     global setting
@@ -118,11 +77,23 @@ def init():
         setting = fileUtils.loadSetting(config_path)
     except Exception as e:
         models.Print.err(f"[ERR] {e}")
-    if setting.batch.enable and not setting.batch.auto and len(setting.batch.queue) == 0:
-        models.Print.err("[ERR] 设置文件中的batch目录下的queue项设置错误，因此这个选项将不会起作用")
-        setting.batch.enable = False
+        return
     global textFolder
     global imageFolder
     textFolder = ""
     imageFolder = ""
-    
+    return
+
+def CalculateParama(book:models.Book):
+    book.safeName = tools.SanitizeName(book.name)
+    book.decryptedTxt = Path("output") / f"{book.safeName}.txt"
+    count = 0
+    for division in book.divisions:
+        for chapter in division.chapters:
+            count += 1
+            chapter.safeTitle = tools.SanitizeName(chapter.title)
+            if setting.cache.text:
+                chapter.decrypted = Path(textFolder) / f"{count} {chapter.safeTitle}.txt"
+            chapter.key = Path("data/key") / str(chapter.id)
+            chapter.encryptedTxt = Path("data") / str(book.id) / f"{chapter.id}.txt"
+    return

@@ -5,188 +5,38 @@ import json
 
 import models
 import requestUtils
+import dbUtils
 import fileUtils
 import epubUtils
 import config
 import tools
 import decrypt
 
-
-def _config_resolve():
+def adb_resolve_queue():
     """Build queue from config. Returns None if config is incomplete."""
-    s = config.setting
-
-    if s.adb.enable:
-        import adbUtils
-        if s.adb.auto:
-            ids = adbUtils.list_books()
-            if not ids:
-                return None
-            return ids
-        else:
-            if not s.adb.books:
-                return None
-            return [str(b) for b in s.adb.books]
-
-    if s.manualBook.enable:
-        try:
-            json.loads(s.manualBook.jsonString)
-        except (json.JSONDecodeError, TypeError):
-            return None
-        return ["1000000"]
-
-    if s.batch.enable:
-        if s.batch.auto:
-            data_dir = Path("data")
-            folders = []
-            if data_dir.exists():
-                for folder in data_dir.iterdir():
-                    if folder.is_dir() and folder.name.isdigit():
-                        folders.append(folder.name)
-            return folders
-        else:
-            if not s.batch.queue:
-                return None
-            return [str(b) for b in s.batch.queue]
-
-    # single book: batch.enable == False
-    if s.batch.url:
-        return [s.batch.url]
-
-    return None
-
-
-def _interactive_resolve():
-    """Show menu and return queue. Returns None if user exits."""
-    import menu
-
-    choice = menu.show_main_menu()
-
-    if choice == 0:
+    import adbUtils
+    ids = adbUtils.list_books()
+    if not ids:
         return None
-    elif choice == 1:
-        url = menu.input_book_url()
-        return [url] if url else _interactive_resolve()
-    elif choice == 2:
-        data_dir = Path("data")
-        folders = []
-        if data_dir.exists():
-            folders = [f.name for f in data_dir.iterdir()
-                       if f.is_dir() and f.name.isdigit()]
-        if not folders:
-            models.Print.warn("[WARN] data/ 目录下没有找到以数字命名的文件夹")
-        return folders
-    elif choice == 3:
-        ids = menu.input_book_id_list()
-        return ids if ids else _interactive_resolve()
-    elif choice == 4:
-        import adbUtils
-        try:
-            adbUtils.check_adb()
-            adbUtils.pull_keys()
-            fileUtils.TransformFilename("data/key")
-            ids = adbUtils.list_books()
-            if not ids:
-                models.Print.warn("[WARN] 设备上未找到已下载的书籍")
-                return _interactive_resolve()
-            return ids
-        except RuntimeError as e:
-            models.Print.err(f"[ERR] ADB: {e}")
-            return _interactive_resolve()
-    elif choice == 5:
-        ids = menu.input_book_id_list()
-        if not ids:
-            return _interactive_resolve()
-        import adbUtils
-        try:
-            adbUtils.check_adb()
-            adbUtils.pull_keys()
-            fileUtils.TransformFilename("data/key")
-            return ids
-        except RuntimeError as e:
-            models.Print.err(f"[ERR] ADB: {e}")
-            return _interactive_resolve()
-    elif choice == 6:
-        s = config.setting
-        try:
-            json.loads(s.manualBook.jsonString)
-        except (json.JSONDecodeError, TypeError):
-            models.Print.err("[ERR] manualBook.jsonString 不是有效的 JSON")
-            return _interactive_resolve()
-        return ["1000000"]
-
-
-def resolve_queue():
-    mode = config.setting.interactive.mode
-
-    if mode == "always":
-        return _interactive_resolve()
-
-    if mode == "never":
-        q = _config_resolve()
-        if q is None:
-            models.Print.err("[ERR] 配置不完整且交互模式为 never，退出")
-            exit(1)
-        return q
-
-    # mode == "auto"
-    q = _config_resolve()
-    if q is not None:
-        return q
-    return _interactive_resolve()
-
-
-def _process_manual_book(book, bookJson):
-    book.id = int(bookJson["bookID"])
-    book.name = bookJson["bookName"]
-    book.author = bookJson["authorName"]
-    book.description = bookJson["bookDescription"]
-    try:
-        with open(Path(bookJson["coverPath"]), "rb") as f:
-            book.cover = f.read()
-    except Exception as e:
-        models.Print.err(f"[ERR] coverPath 读取失败：{e}")
-    chapter_dir = Path("data") / str(book.id)
-    autoExtend = config.setting.manualBook.autoExtend
-    if chapter_dir.exists():
-        for file in chapter_dir.iterdir():
-            if file.is_file() and file.stem.isdigit():
-                title = bookJson.get("contents", {}).get(file.stem, file.stem)
-                book.chapters.append(models.Chapters(id=int(file.stem), title=title))
-    elif not autoExtend:
-        models.Print.err(f"[ERR] 找不到书籍目录 {chapter_dir.resolve()}")
-        return False
-    return True
+    return ids
 
 
 def process_book(entry: str):
     s = config.setting
     book = models.Book()
 
-    # --- Manual book mode ---
-    if s.manualBook.enable:
+    book.url = entry
+    try:
+        book.id = int(urlparse(str(book.url)).path.split('/')[-1])
+    except (ValueError, IndexError):
         try:
-            bookJson = json.loads(s.manualBook.jsonString)
-        except (json.JSONDecodeError, TypeError) as e:
-            models.Print.err(f"[ERR] manualBook.jsonString 解析失败：{e}")
+            book.id = int(str(entry).strip())
+        except ValueError:
+            models.Print.err(f"[ERR] 无效的书籍标识：{entry}")
             return
-        if not _process_manual_book(book, bookJson):
-            return
-        # manual mode builds chapter list from local files; skip network fetch
-    else:
-        # --- Parse book ID ---
-        book.url = entry
-        try:
-            book.id = int(urlparse(str(book.url)).path.split('/')[-1])
-        except (ValueError, IndexError):
-            try:
-                book.id = int(str(entry).strip())
-            except ValueError:
-                models.Print.err(f"[ERR] 无效的书籍标识：{entry}")
-                return
 
     if not isinstance(book.id, int):
-        models.Print.err(f"[ERR] 错误的输入：{entry}，这一项会被忽略")
+        models.Print.err(f"[ERR] 错误的书籍标识：{entry}，这一项会被忽略")
         return
 
     # --- ADB pull ---
@@ -201,24 +51,18 @@ def process_book(entry: str):
     # --- Preprocess ---
     fileUtils.RemoveNewlinesInEachFile(Path("data") / str(book.id))
 
-    # --- Fetch metadata (skip in manual mode) ---
-    if not s.manualBook.enable:
-        try:
-            if requestUtils.GetName(book) != 0:
-                models.Print.err(f"[ERR] 无法获取 {book.id} 的书籍信息，跳过")
-                return
-            models.Print.info(f"[INFO] 获取到：标题: {book.name}， 作者： {book.author}")
-        except Exception as e:
-            models.Print.err(f"[ERR] GetName 异常 {book.id}: {e}")
-            return
-
-        try:
-            if requestUtils.GetContents(book) != 0:
-                models.Print.err(f"[ERR] 无法获取 {book.id} 的目录，跳过")
-                return
-        except Exception as e:
-            models.Print.err(f"[ERR] GetContents 异常 {book.id}: {e}")
-            return
+    db = dbUtils.DBHelper("data/novelCiwei.db")
+    book_info = db.get_book_info(book.id)
+    book.name = book_info.get("book_name", "未命名")
+    book.author = book_info.get("author_name", "未知作者")
+    book.coverUrl = book_info.get("cover","")
+    book.cover = requestUtils.GetCover(book.coverUrl)
+    book.description = requestUtils.GetDescription(book.id)
+    
+    book.divisions = db.get_divisions(book.id)
+    for devision in book.divisions:
+        devision.chapters = db.get_chapters(book.id, devision.id)
+    db.close()
 
     # --- Set up cache folders ---
     if s.cache.text:
@@ -244,58 +88,66 @@ def process_book(entry: str):
     Path("output").mkdir(parents=True, exist_ok=True)
 
     # --- Decrypt chapters ---
-    for chapter in tqdm(book.chapters, desc=models.Print.processingLabel("[PROCESSING] 解码中")):
-        if chapter.isVolIntro:
-            try:
-                with open(book.decryptedTxt, "a", encoding="utf-8") as f:
-                    f.write(f"{chapter.title}\n\n")
-            except Exception as e:
-                models.Print.err(f"[ERR] 保存卷介绍时出错：{e}")
-            continue
-
-        if chapter.decrypted.exists():
-            try:
-                with open(chapter.decrypted, "r", encoding="utf-8") as f:
-                    txt = f.read()
-                chapter.content = txt
-                with open(book.decryptedTxt, "a", encoding="utf-8") as f:
-                    f.write(chapter.title + "\n" + txt + "\n\n")
-            except Exception as e:
-                models.Print.err(f"[ERR] 读取缓存 {chapter.decrypted} 失败：{e}")
-            continue
-
-        try:
-            with open(chapter.key, 'r', encoding="utf-8") as f:
-                seed = f.read()
-            with open(chapter.encryptedTxt, 'r', encoding="utf-8") as f:
-                encryptedTxt = f.read()
-            try:
-                txt = decrypt.decrypt(encryptedTxt, seed)
-                chapter.content = txt
-                if s.cache.text:
-                    with open(chapter.decrypted, "w", encoding="utf-8") as f:
-                        f.write(txt)
-                with open(book.decryptedTxt, "a", encoding="utf-8") as f:
-                    f.write(f"{chapter.title}\n{txt}\n")
-            except Exception as e:
-                models.Print.err(f"[ERR] 解密 {chapter.encryptedTxt} 失败：{e}")
+    for devision in tqdm(book.divisions, desc=models.Print.processingLabel("[PROCESSING] 解码中")):
+        for chapter in devision.chapters:
+            # 读取缓存
+            if chapter.decrypted.exists():
+                try:
+                    with open(chapter.decrypted, "r", encoding="utf-8") as f:
+                        txt = f.read()
+                    chapter.content = txt
+                    with open(book.decryptedTxt, "a", encoding="utf-8") as f:
+                        f.write(chapter.title + "\n" + txt + "\n\n")
+                except Exception as e:
+                    models.Print.err(f"[ERR] 读取缓存 {chapter.decrypted} 失败：{e}")
                 continue
-        except FileNotFoundError:
-            if s.log.notFoundWarn:
-                models.Print.warn(f"[WARN] {chapter.title} 未购买")
-            chapter.content = "本章未购买"
-        except Exception as e:
-            models.Print.warn(f"[WARN] {e}")
+
+            if chapter.auth_access == False:
+                if s.log.notAuthWarn:
+                    models.Print.warn(f"[WARN] {chapter.title} 未购买")
+                chapter.content = "未购买本章"
+                continue
+
+            if chapter.isDownload == False:
+                if s.log.notDownloadWarn:
+                    models.Print.warn(f"[WARN] {chapter.title} 未下载，请重新下载")
+                chapter.content = "未下载本章，请重新下载"
+                continue
+
+            #解码
+            try:
+                with open(chapter.key, 'r', encoding="utf-8") as f:
+                    seed = f.read()
+                with open(chapter.encryptedTxt, 'r', encoding="utf-8") as f:
+                    encryptedTxt = f.read()
+                try:
+                    txt = decrypt.decrypt(encryptedTxt, seed)
+                    chapter.content = txt
+                    if s.cache.text:
+                        with open(chapter.decrypted, "w", encoding="utf-8") as f:
+                            f.write(txt)
+                    with open(book.decryptedTxt, "a", encoding="utf-8") as f:
+                        f.write(f"{chapter.title}\n{txt}\n")
+                except Exception as e:
+                    models.Print.err(f"[ERR] 解密 {chapter.encryptedTxt} 失败：{e}")
+                    continue
+            except FileNotFoundError:
+                if s.log.notDownloadWarn:
+                    models.Print.warn(f"[WARN] 找不到 {chapter.title} ")
+                chapter.content = "找不到本章，未知错误"
+            except Exception as e:
+                models.Print.warn(f"[WARN] {e}")
 
     models.Print.info(f"[INFO] txt文件已生成：{book.safeName}")
     models.Print.info(f"[INFO] 正在打包Epub...")
 
     if s.homePage.enable:
         models.Print.warn("[INFO] 检测到书籍主页选项打开")
-        hp = models.Chapters(isVolIntro=False, id=0, title=book.name)
+        hp = models.Chapters(id=0, title=book.name)
         hp.content = tools.ProcessString(s.homePage.style, book)
-        hp.isVolIntro = False
-        book.chapters.insert(0, hp)
+        division = models.Division(title="首页")
+        division.chapters.append(hp)
+        book.divisions.insert(0, division)
 
     epubUtils.GenerateEpub(book, str(Path("output") / f"{book.safeName}.epub"))
 
@@ -312,6 +164,8 @@ def main():
     )
     
     config.init()
+    
+    isPreQueued = False
 
     # ADB init
     if config.setting.adb.enable:
@@ -319,14 +173,43 @@ def main():
         try:
             adbUtils.check_adb()
             adbUtils.pull_keys()
+            adbUtils.pull_db()
+            
+            preQueue = adb_resolve_queue()
+            isPreQueued = True
         except RuntimeError as e:
             models.Print.err(f"[ERR] ADB 初始化失败：{e}")
-            if config.setting.interactive.mode == "never":
-                exit(1)
-
+    
+    if isPreQueued == False:
+        #Legacy-update
+        preQueue = list()
+        
+        models.Print.info("[INFO] 现在进入传统模式")
+        try:
+            for folder in Path(".").iterdir():
+                if folder.is_dir() and folder.name.isdigit():
+                    preQueue.append(folder.name)
+        except Exception as e:
+            models.Print.err(f"[ERR] 自动寻找目录失败，原因是： {e}")
+            return
+    
     fileUtils.TransformFilename("data/key")
+    
+    # 打印书籍列表表格
+    header = f"{'ID':<15}{'书名'}"
+    separator = "-" * 40
+    table_lines = [header, separator]
+    for id in preQueue:
+        db = dbUtils.DBHelper("data/novelCiwei.db")
+        book_info = db.get_book_info(id)
+        book_name = book_info.get("book_name", "未命名")
+        table_lines.append(f"{str(id):<15}{book_name}")
+    models.Print.info("\n".join(table_lines))
 
-    queue = resolve_queue()
+    models.Print.warn("[OPT] 请输入需要解码的书籍 ID（多个 ID 请用空格分隔）：")
+    queueString = input()
+    queue = queueString.split()  # 转换为列表
+    
     if queue is None:
         return
 

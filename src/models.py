@@ -11,19 +11,27 @@ import requests
 @dataclass
 class Chapters:
     id: int = field(default_factory=int)
-    isVolIntro: bool = False
     decrypted: Path = field(default_factory=Path)
     key: Path = field(default_factory=Path)
     encryptedTxt: Path = field(default_factory=Path)
     title: str = field(default_factory=str)
     safeTitle: str = field(default_factory=str)
     content:str = field(default_factory=str)
+    auth_access:bool = field(default_factory=bool)
+    isDownload: bool = field(default_factory=bool)
+
+@dataclass
+class Division:
+    id: int = field(default_factory=int)
+    title: str = field(default_factory=str)
+    maxChapterIndex: int = field(default_factory=int)
+    chapters:list = field(default_factory=list)
 
 @dataclass
 class Book:
     id: int = field(default_factory=int)
     url: str = field(default_factory=str)
-    chapters: list = field(default_factory=list)
+    divisions: list = field(default_factory=list)
     safeName: str = "未命名"
     name: str = "未命名"
     author: str = "佚名"
@@ -95,12 +103,6 @@ class homePageConfig(BaseModel):
     enable: bool = False
     style: str = "<bookCover>\n书名:<bookName>\n作者:<bookAuthor>\n描述:<bookDescription>"
 
-class batchConfig(BaseModel):
-    enable: bool = False
-    auto: bool = False
-    queue: list = field(default_factory=list)
-    url: str = ""
-
 class cacheConfig(BaseModel):
     text: bool = True
     textFolder: str = "decrypted/{bookID}/text"
@@ -108,31 +110,19 @@ class cacheConfig(BaseModel):
     imageFolder: str = "decrypted/{bookID}/images"
 
 class logConfig(BaseModel):
-    notFoundWarn: bool = True
+    notDownloadWarn : bool =  True
+    notAuthWarn : bool =True
 
 class multiThreadConfig(BaseModel):
     maxWorkers: int = 8
 
-class manualBookConfig(BaseModel):
-    enable: bool = False
-    autoExtend: bool = True
-    jsonString: str = field(default_factory=str)
-
 class adbConfig(BaseModel):
     enable: bool = False
-    auto: bool = True
-    books: list = field(default_factory=list)
     device: str = ""
-
-class interactiveConfig(BaseModel):
-    mode: Literal["auto", "always", "never"] = "auto"
 
 class Config(BaseModel):
     homePage: homePageConfig
-    batch: batchConfig
     cache: cacheConfig
     log: logConfig
     multiThread: multiThreadConfig
-    manualBook: manualBookConfig
     adb: adbConfig
-    interactive: interactiveConfig
