@@ -61,9 +61,9 @@ def parse_chapter(idx: int, chapter: models.Chapters):
         paragraphs = re.split(r'(?=　　)', text)
         html = ''.join(f"<p>{p.strip()}</p>" for p in paragraphs if p.strip())
 
-        return idx, chapter.title ,html, chapter.isVolIntro, img_urls, None
+        return idx, chapter.title ,html, img_urls, None
     except Exception as e:
-        return idx, None, None, None, [], e
+        return idx, None, None, [], e
 
 
 # ---------------------------------------
@@ -144,8 +144,8 @@ def GenerateEpub(book: models.Book,
 
     # 初始化 EPUB
     epub_book = epub.EpubBook()
-    epub_book.set_title(book.name or "未命名")
-    epub_book.add_author(book.author or "佚名")
+    epub_book.set_title(book.name)
+    epub_book.add_author(book.author)
     epub_book.set_language("zh")
 
     # 封面
@@ -163,23 +163,39 @@ def GenerateEpub(book: models.Book,
     chapter_infos = []
     all_urls = []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(parse_chapter, idx, chap): idx
-            for idx, chap in enumerate(book.chapters)
-        }
+    tasks = []
+    idx = 0
 
-        for fut in tqdm(as_completed(futures),
-                        total=len(futures),
-                        desc="[PROCESS] 解析章节..."):
-            idx, title, html, isVol, urls, err = fut.result()
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {}
+
+        for division in book.divisions:
+            for chap in division.chapters:
+                futures[pool.submit(parse_chapter, idx, chap)] = (
+                    idx,
+                    division,
+                    chap
+                )
+                idx += 1
+
+        for fut in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="[PROCESS] 解析章节..."
+        ):
+            idx, division, chap = futures[fut]
+
+            _, title, html, urls, err = fut.result()
+
             if err:
-                models.Print.err(f"[ERR] 解析章节 {idx+1} 失败: {err}")
+                ...
                 continue
 
-            chapter_infos.append((idx, title, html, isVol))
-            all_urls.extend(urls)
+            chapter_infos.append(
+                (idx, division, chap, title, html)
+            )
 
+            all_urls.extend(urls)
     chapter_infos.sort(key=lambda x: x[0])
 
     # ===============================
@@ -188,7 +204,7 @@ def GenerateEpub(book: models.Book,
 
     async def pipeline_main(unique_urls: list[str], pbar: tqdm):
         """一个事件循环，生产者（线程池部份）已把 URL 提供给我们。"""
-        await AsyncHTTP.init()              # 启动 HTTP session
+        await AsyncHTTP.init()             # 启动 HTTP session
 
         queue = asyncio.Queue()
         results = {}                        # url → bytes
@@ -222,7 +238,7 @@ def GenerateEpub(book: models.Book,
             pass
 
         return results
-
+    
     unique_urls = list(dict.fromkeys(all_urls))
     if unique_urls:
         pbar = tqdm(total=len(unique_urls), desc=models.Print.processingLabel(f"[PROCESSING] 正在下载图片"))
@@ -257,64 +273,80 @@ def GenerateEpub(book: models.Book,
     # ===============================
     # D. 构建章节
     # ===============================
-    spine = ["nav"]
     epub_chapters = []
 
-    for idx, title ,html, isVol in chapter_infos:
-        for url, rep in url_to_epubpath.items():
-            if url in html:
-                html = html.replace(url, rep)
+    for idx, division, chapter, title, html in chapter_infos:
+        soup = BeautifulSoup(html, "html.parser")
+        for img in soup.find_all('img'):
+            src = str(img.get("src", ""))
+            if src in url_to_epubpath:
+                img["src"] = url_to_epubpath[src]
+            else:
+                img.decompose()
 
         chap = epub.EpubHtml(
             title=title,
-            file_name=f"chap_{idx+1}.xhtml",
+            file_name=f"chap_{idx + 1}.xhtml",
             lang="zh"
         )
-        chap.content = f"<h1>{html_title(book, idx)}</h1>{html}"
 
+        chap.content = f"<h1>{title}</h1>{soup}"
         epub_book.add_item(chap)
-        epub_chapters.append((idx, chap, isVol))
-        spine.append(chap) # pyright: ignore[reportArgumentType]
+
+        epub_chapters.append(
+            (
+                idx,
+                division,
+                chap
+            )
+        )
 
     # ===============================
     # E. 目录 (TOC)
     # ===============================
     toc = []
-    curVol = None
-    curList = []
 
-    for idx, chap, isVol in epub_chapters:
-        if isVol:
-            if curVol and curList:
-                toc.append([epub.Section(curVol.title), curList.copy()])
-            curVol = chap
-            curList.clear()
-        else:
-            if curVol:
-                curList.append(chap)
-            else:
-                toc.append(chap)
+    division_map = {}
 
-    if curVol:
-        toc.append([epub.Section(curVol.title), curList.copy()])
+    for idx, division, chap in epub_chapters:
+        division_map.setdefault(
+            division.id,
+            {
+                "title": division.title,
+                "chapters": []
+            }
+        )
 
-    epub_book.spine = spine
-    epub_book.toc = list(tuple(toc))
-    epub_book.add_item(epub.EpubNav())
-    epub_book.add_item(epub.EpubNcx())
+        division_map[division.id]["chapters"].append(chap)
+
+    for div in book.divisions:
+
+        info = division_map.get(div.id)
+
+        if info is None:
+            continue
+
+        toc.append(
+            (
+                epub.Section(div.title),
+                info["chapters"]
+            )
+        )
 
     # ===============================
-    # F. 写入 EPUB
+    # F. 设置 spine & TOC
+    # ===============================
+    epub_book.set_identifier(str(uuid.uuid4()))
+    epub_book.add_item(epub.EpubNcx())
+    epub_book.add_item(epub.EpubNav())
+    epub_book.spine = ['nav'] + [chap for _, _, chap in epub_chapters]
+    epub_book.toc = toc
+
+    # ===============================
+    # G. 写入 EPUB
     # ===============================
     try:
         epub.write_epub(output_path, epub_book, {})
         models.Print.info(f"[INFO] EPUB 生成成功：{output_path}")
     except Exception as e:
         models.Print.err(f"[ERR] EPUB 写入失败: {e}")
-
-
-def html_title(book, idx):
-    try:
-        return book.chapters[idx].title or f"章节 {idx+1}"
-    except:
-        return f"章节 {idx+1}"

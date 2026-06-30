@@ -5,9 +5,11 @@ class AsyncHTTP:
 
     @classmethod
     async def init(cls):
-        if cls.session is None:
-            timeout = aiohttp.ClientTimeout(total=20)
-            cls.session = aiohttp.ClientSession(timeout=timeout)
+        if cls.session is not None:
+            await cls.close()          # 安全关闭
+            cls.session = None         # 清空引用
+        timeout = aiohttp.ClientTimeout(total=20)
+        cls.session = aiohttp.ClientSession(timeout=timeout)
 
     @classmethod
     async def get(cls, url: str):
