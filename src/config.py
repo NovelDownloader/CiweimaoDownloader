@@ -10,18 +10,6 @@ homePage:
   #可选的参数有 {bookID} {bookCover} {bookName} {bookAuthor} {bookDescription} {Enter}
   style: "{bookCover}{Enter}书名:{bookName}{Enter}作者:{bookAuthor}{Enter}描述:{bookDescription}"
 
-#这是批量模式的开启选项
-batch:
-  enable: false
-  #打开这个选项能让程序自动处理目录下的以数字为名的文件夹，而queue中的内容会被忽略
-  auto: true
-  #单书模式时直接指定url或id，留空则在交互模式下询问
-  url: ""
-  #输入你想处理的书籍的url或者id
-  queue:
-    - 100000000
-    - 200000000
-
 #这是缓存的选项
 cache:
   #生成文本的缓存
@@ -36,7 +24,9 @@ cache:
 #日志相关的设置
 log:
   #关闭这个选项会忽略"xxx章未购买"的警告
-  notFoundWarn: true
+  notAuthWarn: true
+  #关闭这个选项会忽略"xxx未下载，请重新下载"的警告
+  notDownloadWarn: True
 
 #多线程相关的设置
 multiThread:
@@ -49,17 +39,7 @@ adb:
   #留空则自动检测，多设备时自动选择安装了刺猬猫的设备
   device: ""
   #打开这个选项能让程序自动扫描设备上的所有书籍，此时books设置会被忽略
-  auto: true
-  #当auto为false时，手动指定需要拉取的book_id列表
-  books:
-    - 100000000
 
-#交互模式的设置选项
-interactive:
-  #auto = 配置文件完整时无交互运行，不完整时弹出菜单
-  #always = 始终显示菜单
-  #never = 绝不显示菜单，配置不完整时报错退出
-  mode: auto
 """
 setting = None
 textFolder = ""
@@ -92,7 +72,7 @@ def CalculateParama(book:models.Book):
         for chapter in division.chapters:
             count += 1
             chapter.safeTitle = tools.SanitizeName(chapter.title)
-            if setting.cache.text:
+            if setting.cache.text: # pyright: ignore[reportOptionalMemberAccess]
                 chapter.decrypted = Path(textFolder) / f"{count} {chapter.safeTitle}.txt"
             chapter.key = Path("data/key") / str(chapter.id)
             chapter.encryptedTxt = Path("data") / str(book.id) / f"{chapter.id}.txt"

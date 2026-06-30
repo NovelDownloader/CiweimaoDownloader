@@ -199,7 +199,7 @@ def main():
     header = f"{'ID':<15}{'书名'}"
     separator = "-" * 40
     table_lines = [header, separator]
-    for id in preQueue:
+    for id in preQueue: # type: ignore
         db = dbUtils.DBHelper("data/novelCiwei.db")
         book_info = db.get_book_info(id)
         book_name = book_info.get("book_name", "未命名")
